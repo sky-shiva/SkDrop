@@ -1,139 +1,130 @@
 
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi.responses import HTMLResponse
 from pathlib import Path
-from urllib.parse import unquote
-import html
-import re
+import uvicorn
 
-HOST = "0.0.0.0"
-PORT = 8000
+app = FastAPI(title="SkDrop")
 
-BASE_DIR = Path(__file__).resolve().parent
-SAVE_DIR = BASE_DIR / "received_files"
-SAVE_DIR.mkdir(exist_ok=True)
+# Folder where received files are stored
+SAVE_DIR = Path(__file__).parent / "received_files"
+SAVE_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MB
+CHUNK_SIZE = 1024 * 1024  # 1 MB
 
 
-class SkDropHandler(BaseHTTPRequestHandler):
-
-    def do_GET(self):
-        files = sorted(p.name for p in SAVE_DIR.iterdir() if p.is_file())
-
-        file_list = "".join(
-            f"<li>{html.escape(name)}</li>" for name in files
-        ) or "<li>No files received yet</li>"
-
-        page = f"""<!DOCTYPE html>
-<html>
-<head>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>SkDrop</title>
-</head>
-<body style="font-family:Arial;max-width:600px;margin:40px auto;padding:16px">
-    <h1>🚀 SkDrop</h1>
-    <p>Send files from your Android phone to your Windows laptop.</p>
-    <form action="/upload" method="post" enctype="multipart/form-data">
-        <input type="file" name="file" required>
-        <button type="submit">Send file</button>
-    </form>
-    <h3>Received files</h3>
-    <ul>{file_list}</ul>
-</body>
-</html>"""
-
-        body = page.encode("utf-8")
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def do_POST(self):
-        if self.path != "/upload":
-            self.send_error(404)
-            return
-
-        content_type = self.headers.get("Content-Type", "")
-        match = re.search(r'multipart/form-data;\s*boundary=(?:"([^"]+)"|([^;]+))',
-                          content_type, re.I)
-
-        if not match:
-            self.send_error(400, "Expected a multipart file upload")
-            return
-
-        boundary = (match.group(1) or match.group(2)).encode("ascii", "strict")
-        length_header = self.headers.get("Content-Length")
-
-        if not length_header or not length_header.isdigit():
-            self.send_error(411, "Content-Length required")
-            return
-
-        length = int(length_header)
-        if length > MAX_FILE_SIZE + 1024 * 1024:
-            self.send_error(413, "File is too large (maximum 100 MB)")
-            return
-
-        body = self.rfile.read(length)
-        delimiter = b"--" + boundary
-
-        for part in body.split(delimiter):
-            if b"\r\n\r\n" not in part:
-                continue
-
-            headers, data = part.split(b"\r\n\r\n", 1)
-            disposition = re.search(
-                rb'Content-Disposition:\s*form-data;[^\r\n]*filename="([^"]*)"',
-                headers, re.I
-            )
-
-            if not disposition:
-                continue
-
-            filename = unquote(
-                disposition.group(1).decode("utf-8", "replace")
-            ).replace("\\", "/").split("/")[-1].strip()
-
-            if not filename or filename in {".", ".."}:
-                self.send_error(400, "Invalid filename")
-                return
-
-            data = data.removesuffix(b"\r\n").removesuffix(b"--")
-            if len(data) > MAX_FILE_SIZE:
-                self.send_error(413, "File is too large")
-                return
-
-            # Avoid overwriting an existing file.
-            destination = SAVE_DIR / filename
-            stem, suffix = destination.stem, destination.suffix
-            counter = 1
-            while destination.exists():
-                destination = SAVE_DIR / f"{stem}_{counter}{suffix}"
-                counter += 1
-
-            destination.write_bytes(data)
-
-            print(f"Received: {destination.name} ({len(data)} bytes)")
-            self.send_response(303)
-            self.send_header("Location", "/")
-            self.end_headers()
-            return
-
-        self.send_error(400, "No file found in upload")
+@app.get("/", response_class=HTMLResponse)
+async def home():
+    return """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>SkDrop</title>
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                max-width: 500px;
+                margin: 60px auto;
+                padding: 20px;
+                text-align: center;
+                background: #f4f6f8;
+            }
+            .card {
+                background: white;
+                padding: 25px;
+                border-radius: 16px;
+                box-shadow: 0 4px 15px #0001;
+            }
+            input, button {
+                margin-top: 18px;
+                width: 100%;
+                padding: 12px;
+                box-sizing: border-box;
+            }
+            button {
+                background: #2563eb;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                cursor: pointer;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="card">
+            <h1>SkDrop</h1>
+            <p>Send files to your laptop</p>
+            <form action="/upload" method="post" enctype="multipart/form-data">
+                <input type="file" name="file" required>
+                <button type="submit">Send File</button>
+            </form>
+        </div>
+    </body>
+    </html>
+    """
 
 
-server = HTTPServer((HOST, PORT), SkDropHandler)
+@app.post("/upload", response_class=HTMLResponse)
+async def upload_file(file: UploadFile = File(...)):
+    # Keep only the filename, not any directory path
+    filename = (file.filename or "upload.bin").replace("\\", "/").split("/")[-1]
 
-print("=" * 32)
-print("        SkDrop RECEIVER")
-print("=" * 32)
-print("Laptop: http://127.0.0.1:8000")
-print("Keep this terminal open while transferring.")
-print("Press Ctrl+C to stop.")
+    if not filename or filename in {".", ".."}:
+        raise HTTPException(status_code=400, detail="Invalid filename")
 
-try:
-    server.serve_forever()
-except KeyboardInterrupt:
-    print("\nSkDrop server stopped.")
-finally:
-    server.server_close()
+    destination = SAVE_DIR / filename
+    stem, suffix = destination.stem, destination.suffix
+
+    # Avoid overwriting an existing file
+    counter = 1
+    while destination.exists():
+        destination = SAVE_DIR / f"{stem}_{counter}{suffix}"
+        counter += 1
+
+    total_size = 0
+
+    try:
+        with destination.open("wb") as output:
+            while True:
+                chunk = await file.read(CHUNK_SIZE)
+
+                if not chunk:
+                    break
+
+                total_size += len(chunk)
+
+                if total_size > MAX_FILE_SIZE:
+                    output.close()
+                    destination.unlink(missing_ok=True)
+                    raise HTTPException(
+                        status_code=413,
+                        detail="File exceeds the 100 MB limit"
+                    )
+
+                output.write(chunk)
+
+    except HTTPException:
+        raise
+    except Exception:
+        destination.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail="Upload failed")
+    finally:
+        await file.close()
+
+    return f"""
+    <html>
+      <head><meta name="viewport" content="width=device-width, initial-scale=1"></head>
+      <body style="font-family:Arial;text-align:center;margin-top:60px">
+        <h2>File received successfully!</h2>
+        <p>Saved as: {destination.name}</p>
+        <p>Size: {total_size / (1024 * 1024):.2f} MB</p>
+        <a href="/">Send another file</a>
+      </body>
+    </html>
+    """
+
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
