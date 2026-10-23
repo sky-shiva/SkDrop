@@ -1,2 +1,29 @@
-venv
-received_files
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+
+# Testing & caches
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local state & files
+received_files/
+temp/
+.backup/
+*.log
+.env
+.device_id
+.paired_devices.json
+
+
+# OS metadata
+.DS_Store
+Thumbs.db

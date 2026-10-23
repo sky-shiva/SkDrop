@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SkDrop — AirDrop-Inspired Local File Sharing</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header>
+      <div class="brand">
+        <div class="logo-icon">📡</div>
+        <div class="logo-text">Sk<span>Drop</span></div>
+      </div>
+      <div class="header-status">
+        <div class="device-badge">
+          <span class="status-dot" id="hostStatusDot"></span>
+          <span id="hostName">Connecting...</span>
+          <span style="color: var(--text-muted); font-size: 12px;" id="hostIp"></span>
+        </div>
+        <button type="button" class="btn btn-primary" id="openPairModalBtn">
+          ⚡ Pair Device
+        </button>
+      </div>
+    </header>
+
+    <!-- Security Banner -->
+    <div class="security-banner">
+      <span>🔒</span>
+      <span><strong>Local Hotspot Network:</strong> HTTP transfers are unencrypted. Use only on trusted private Wi-Fi or phone hotspot.</span>
+    </div>
+
+    <!-- Hero Title -->
+    <div class="hero">
+      <h1>Share files locally.<br>Fast, simple, private.</h1>
+      <p>Transfer photos, videos, and documents between your Android phone and Windows laptop with AirDrop simplicity.</p>
+    </div>
+
+    <!-- Nearby Devices Panel -->
+    <section class="panel">
+      <div class="panel-header">
+        <h2>
+          <span>📶</span> Nearby Devices
+          <span class="badge badge-muted" id="discoveryBadge">Initializing...</span>
+        </h2>
+      </div>
+      <div class="devices-grid" id="devicesGrid">
+        <div class="empty-state" style="grid-column: 1 / -1;">
+          <p>Scanning local network for SkDrop devices...</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Transfer & Dropzone Panel -->
+    <section class="panel">
+      <div class="panel-header">
+        <h2>
+          <span>📤</span> Send Files
+          <span class="badge badge-blue" id="targetIndicator" style="display: none;">Target: Local Laptop</span>
+        </h2>
+      </div>
+
+      <div class="dropzone" id="dropzone" role="button" tabindex="0">
+        <div class="drop-icon">↥</div>
+        <h3>Drop files here or click to choose</h3>
+        <p>Supports photos, videos, and documents · Up to 100 MB per file</p>
+        <button type="button" class="btn btn-primary" onclick="event.stopPropagation(); document.getElementById('fileInput').click();">
+          Browse Files
+        </button>
+        <input type="file" id="fileInput" multiple hidden>
+      </div>
+
+      <!-- Upload Queue & Progress -->
+      <div class="queue-list" id="queueList"></div>
+    </section>
+
+    <!-- Received Files Panel -->
+    <section class="panel">
+      <div class="panel-header">
+        <h2><span>📥</span> Received Files</h2>
+        <button type="button" class="btn btn-sm" id="refreshFilesBtn">🔄 Refresh</button>
+      </div>
+      <div class="file-list" id="fileList">
+        <div class="empty-state">Loading files...</div>
+      </div>
+    </section>
+
+    <footer>
+      SkDrop · Open Source Local File Sharing · Zero Cloud Dependency
+    </footer>
+  </div>
+
+  <!-- Pairing Modal -->
+  <div class="modal-overlay" id="pairModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Pair a New Device</h3>
+        <button type="button" class="close-btn" id="closePairModalBtn">&times;</button>
+      </div>
+
+      <div class="modal-tabs">
+        <button type="button" class="tab-btn active" data-tab="qr">Scan QR Code</button>
+        <button type="button" class="tab-btn" data-tab="code">Enter PIN</button>
+        <button type="button" class="tab-btn" data-tab="ip">Manual IP</button>
+      </div>
+
+      <!-- Tab 1: QR Code -->
+      <div class="tab-content active" id="tab-qr">
+        <p style="font-size: 13px; color: var(--text-muted); text-align: center; margin-bottom: 16px;">
+          Scan with your phone's camera to pair instantly over the hotspot:
+        </p>
+        <div class="qr-box">
+          <img id="qrImage" src="" alt="Pairing QR Code">
+        </div>
+        <div class="pin-display" id="currentPin">------</div>
+        <p style="font-size: 12px; color: var(--text-muted); text-align: center; overflow-wrap: anywhere;">
+          Or open in mobile browser: <br>
+          <a id="directLink" href="#" target="_blank" style="color: var(--accent); text-decoration: none; font-weight: 600;"></a>
+        </p>
+      </div>
+
+      <!-- Tab 2: Enter PIN -->
+      <div class="tab-content" id="tab-code">
+        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 14px;">
+          Enter the 6-digit pairing code shown on the other device's screen:
+        </p>
+        <div class="form-group">
+          <label for="inputPin">6-Digit Pairing PIN</label>
+          <input type="text" id="inputPin" placeholder="e.g. 542190" maxlength="6" style="font-size: 20px; letter-spacing: 4px; text-align: center;">
+        </div>
+        <button type="button" class="btn btn-primary" id="submitPinBtn" style="width: 100%;">
+          Request Pairing
+        </button>
+        <p id="pinMsg" style="font-size: 12px; margin-top: 10px; text-align: center;"></p>
+      </div>
+
+      <!-- Tab 3: Manual IP Entry -->
+      <div class="tab-content" id="tab-ip">
+        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 14px;">
+          If automatic discovery is blocked by Windows Firewall or hotspot isolation, enter the device's local IP address:
+        </p>
+        <div class="form-group">
+          <label for="inputIp">Target IP Address</label>
+          <input type="text" id="inputIp" placeholder="e.g. 10.72.217.35">
+        </div>
+        <button type="button" class="btn btn-primary" id="submitIpBtn" style="width: 100%;">
+          Connect to IP
+        </button>
+        <p id="ipMsg" style="font-size: 12px; margin-top: 10px; text-align: center;"></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Receiver Approval Modal -->
+  <div class="modal-overlay" id="approvalModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>📲 Pairing Request</h3>
+      </div>
+      <p style="font-size: 14px; margin-bottom: 16px;">
+        <strong id="approvalDeviceName">Nearby Device</strong> wants to pair with your SkDrop instance.
+      </p>
+      <div class="pin-display" id="approvalPin" style="font-size: 24px; letter-spacing: 3px;">------</div>
+      <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 20px;">
+        Verify that this code matches the code on the requesting device before accepting.
+      </p>
+      <div style="display: flex; gap: 10px;">
+        <button type="button" class="btn btn-primary" id="approveBtn" style="flex: 1; background: var(--green); border-color: var(--green);">
+          ✓ Approve
+        </button>
+        <button type="button" class="btn btn-danger" id="declineBtn" style="flex: 1;">
+          ✕ Decline
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Incoming File Transfer Modal (Laptop -> Phone Direct Transfer) -->
+  <div class="modal-overlay" id="incomingFileModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>📥 Incoming File</h3>
+      </div>
+      <p style="font-size: 14px; margin-bottom: 12px;">
+        <strong id="incomingSenderName">Laptop</strong> is sending you a file:
+      </p>
+      <div style="background: rgba(14, 20, 36, 0.7); border: 1px solid var(--panel-border); border-radius: var(--radius-sm); padding: 14px; margin-bottom: 20px;">
+        <div style="font-weight: 700; font-size: 15px; overflow-wrap: anywhere;" id="incomingFileName">document.pdf</div>
+        <div style="color: var(--text-muted); font-size: 12px; margin-top: 4px;" id="incomingFileSize">2.4 MB</div>
+      </div>
+      <div style="display: flex; gap: 10px;">
+        <button type="button" class="btn btn-primary" id="acceptFileBtn" style="flex: 1; background: var(--green); border-color: var(--green);">
+          Accept &amp; Download
+        </button>
+        <button type="button" class="btn btn-danger" id="declineFileBtn" style="flex: 1;">
+          Decline
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
